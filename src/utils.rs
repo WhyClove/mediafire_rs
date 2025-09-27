@@ -1,5 +1,4 @@
 use anyhow::Result;
-use base64::prelude::*;
 use regex::Regex;
 use ring::digest;
 use scraper::{Html, Selector};
@@ -28,18 +27,13 @@ pub async fn create_directory_if_not_exists(path: &PathBuf) -> Result<()> {
 pub fn parse_download_link(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
     let selector = Selector::parse("#downloadButton").ok()?;
-    let base64link = document
+    let link = document
         .select(&selector)
         .next()?
         .value()
-        .attr("data-scrambled-url")?
+        .attr("href")?
         .to_string();
-    if let Ok(bytes) = BASE64_STANDARD.decode(base64link.as_bytes()) {
-        if let Ok(real_url) = String::from_utf8(bytes) {
-            return Some(real_url);
-        };
-    }
-    None
+    Some(link)
 }
 
 pub fn check_hash(file_path: &PathBuf, expected_hash: &String) -> Result<bool, std::io::Error> {

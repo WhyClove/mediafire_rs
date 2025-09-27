@@ -7,15 +7,22 @@ use crate::types::folder::Folder;
 use crate::types::get_content::Response;
 use crate::utils::check_hash;
 use crate::utils::{create_directory_if_not_exists, parse_download_link};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures::StreamExt;
 use indicatif::ProgressBar;
+use reqwest::header::{HeaderMap, RANGE};
+use std::io::SeekFrom;
 use std::path::PathBuf;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::try_join;
 
 #[async_recursion::async_recursion]
-pub async fn download_folder(client: &Client, folder_key: &str, path: PathBuf, chunk: u32) -> Result<()> {
+pub async fn download_folder(
+    client: &Client,
+    folder_key: &str,
+    path: PathBuf,
+    chunk: u32,
+) -> Result<()> {
     create_directory_if_not_exists(&path).await?;
     TOTAL_PROGRESS_BAR.set_message(format!(
         "{}",
@@ -27,7 +34,8 @@ pub async fn download_folder(client: &Client, folder_key: &str, path: PathBuf, c
             .unwrap()
     ));
 
-    let (folder_content, file_content) = get_folder_and_file_content(client, folder_key, chunk).await?;
+    let (folder_content, file_content) =
+        get_folder_and_file_content(client, folder_key, chunk).await?;
 
     if let Some(files) = file_content.folder_content.files {
         download_files(files, &path).await?;
@@ -46,7 +54,11 @@ pub async fn download_folder(client: &Client, folder_key: &str, path: PathBuf, c
     Ok(())
 }
 
-async fn get_folder_and_file_content(client: &Client, folder_key: &str, chunk: u32) -> Result<(Response, Response)> {
+async fn get_folder_and_file_content(
+    client: &Client,
+    folder_key: &str,
+    chunk: u32,
+) -> Result<(Response, Response)> {
     match try_join!(
         get_content(client, folder_key, "folders", chunk),
         get_content(client, folder_key, "files", chunk)
@@ -65,7 +77,12 @@ async fn download_files(files: Vec<File>, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn download_folders(client: &Client, folders: Vec<Folder>, path: &PathBuf, chunk: u32) -> Result<()> {
+async fn download_folders(
+    client: &Client,
+    folders: Vec<Folder>,
+    path: &PathBuf,
+    chunk: u32,
+) -> Result<()> {
     for folder in folders {
         let folder_path = path.join(&folder.name);
         if let Err(e) = download_folder(client, &folder.folderkey, folder_path, chunk).await {
@@ -89,7 +106,8 @@ pub async fn download_file(client: &Client, download_job: &DownloadJob) -> Resul
     );
 
     let mut download_again = false;
-    if download_job.path.is_file() {
+    let mut start_bytes = 0;
+    if download_job.path.exists() {
         bar.set_message("💾");
         bar.set_prefix("File already exists, checking hash...");
         if check_hash(&download_job.path, &download_job.file.hash)? {
@@ -106,6 +124,8 @@ pub async fn download_file(client: &Client, download_job: &DownloadJob) -> Resul
             return Ok(());
         }
         download_again = true;
+        let mut f = tokio::fs::File::open(&download_job.path).await?;
+        start_bytes = f.seek(SeekFrom::End(0)).await?;
     }
 
     bar.set_message("🌀");
@@ -115,15 +135,26 @@ pub async fn download_file(client: &Client, download_job: &DownloadJob) -> Resul
         "Getting download link..."
     });
 
-    let response = {
+    let mut headers = HeaderMap::new();
+    headers.insert(RANGE, format!("bytes={}-", start_bytes).parse()?);
 
-        let response = client.api_client
+    let response = {
+        let response = client
+            .api_client
             .get(&download_job.file.links.normal_download)
+            .headers(headers.clone())
             .send()
             .await?;
         if response.headers().get("content-type").unwrap() == &"text/html; charset=UTF-8" {
             if let Some(link) = parse_download_link(&response.text().await?) {
-                Some(client.download_client.get(link).send().await?)
+                Some(
+                    client
+                        .download_client
+                        .get(link)
+                        .headers(headers)
+                        .send()
+                        .await?,
+                )
             } else {
                 None
             }
@@ -154,6 +185,22 @@ pub async fn download_file(client: &Client, download_job: &DownloadJob) -> Resul
             bar.abandon_with_message("❌");
             return Err(e);
         }
+        bar.set_message("💾");
+        bar.set_prefix("Checking hash...");
+        if check_hash(&download_job.path, &download_job.file.hash)? {
+            bar.set_prefix(
+                download_job
+                    .path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+            );
+            bar.set_style(PROGRESS_STYLE.clone());
+            bar.abandon_with_message("✅");
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -165,16 +212,31 @@ pub async fn stream_file_to_disk(
 ) -> Result<(), anyhow::Error> {
     progress_bar.set_style(PROGRESS_STYLE_DOWNLOAD.clone());
     progress_bar.set_message("🔽");
-    progress_bar.set_length(response.content_length().unwrap());
-    let mut file = tokio::fs::File::create(path).await?;
+    let mut file = match path.exists() {
+        false => {
+            progress_bar.set_length(response.content_length().unwrap());
+            tokio::fs::File::create(path).await?
+        }
+        _ => {
+            let mut f = tokio::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(path)
+                .await?;
+            let start_bytes = f.seek(SeekFrom::End(0)).await?;
+            progress_bar.set_length(response.content_length().unwrap() + start_bytes);
+            progress_bar.inc(start_bytes);
+            f
+        }
+    };
+
     let mut stream = response.bytes_stream();
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         progress_bar.inc(chunk.len() as u64);
         file.write_all(&chunk).await?;
         file.flush().await?;
     }
-    progress_bar.set_style(PROGRESS_STYLE.clone());
-    progress_bar.abandon_with_message("✅");
     Ok(())
 }

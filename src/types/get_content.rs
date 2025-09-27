@@ -24,14 +24,6 @@ pub struct FolderContent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Permissions {
-    pub value: String,
-    pub explicit: String,
-    pub read: String,
-    pub write: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct Root {
     pub response: Response,
 }
