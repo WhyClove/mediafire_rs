@@ -12,6 +12,10 @@ jobs:
     container: ubuntu:24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl wget # or wget, depending on your preference
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
