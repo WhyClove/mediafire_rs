@@ -18,7 +18,8 @@ jobs:
           DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y curl wget build-essential pkg-config tzdata
-          TZ=Etc/UTC
+          ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime
+          dpkg-reconfigure --frontend noninteractive tzdata
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
