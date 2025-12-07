@@ -29,7 +29,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3.1.0
         with:
           name: mdrs
-          path: target/x86_64-unknown-linux-gnu/release/mdrs release/mdrs
+          path: target/x86_64-unknown-linux-gnu/release/mdrs 
