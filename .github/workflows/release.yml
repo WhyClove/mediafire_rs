@@ -16,7 +16,8 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y curl wget build-essential pkg-config
+          apt-get install -y curl wget build-essential pkg-config tzdata
+          TZ=Etc/UTC
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
