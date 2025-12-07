@@ -29,7 +29,7 @@ jobs:
           tar -czvf mdrs.tar.gz mdrs
 
       - name: Upload release artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mdrs
           path: release/mdrs.tar.gz
