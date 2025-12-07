@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget build-essential pkg-config tzdata
+          DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget build-essential pkg-config tzdata libssl-dev
           dpkg-reconfigure --frontend noninteractive tzdata
 
       - name: Set up Rust
