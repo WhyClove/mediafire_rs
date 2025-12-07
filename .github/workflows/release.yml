@@ -4,28 +4,18 @@ permissions:
   contents: write
 
 on:
-  push:
-    tags:
-      - v[0-9]+.*
   workflow_dispatch:  # This allows manual triggering
   
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    container: ubuntu:24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/create-gh-release-action@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
   upload-assets:
-    needs: create-release
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            container: ubuntu:24.04
+
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: x86_64-pc-windows-msvc
